@@ -1,0 +1,412 @@
+---
+title: "College Lifestyles and Food Choices Data Analysis"
+output:
+  html_document: default
+  word_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r, include = F, message = FALSE}
+library(car)
+library(leaps)
+library(lubridate)
+library(rvest)
+library(olsrr)
+library(corrplot)
+library(leaps)
+library(dplyr)
+source("http://www.reuningscherer.net/s&ds230/Rfuncs/regJDRS.txt")
+```
+## Introduction
+
+We have decided to examine a data set regarding the food preferences and lifestyle choices of college students. The data set that we have selected includes 126 responses from university-level students; these responses provide information on current and past food preferences, grades, nutrition, exercise levels, among other categories. We chose this data set because its content felt relevant to us as college students. 
+
+The source of our data can be found [here](https://www.kaggle.com/datasets/borapajo/food-choices). Additionally, the code book that describes our data set variables can be found at this [link](http://reuningscherer.net/s&ds230/data/codebook_food.pdf). 
+
+We will begin by loading in the contents of our data into an object called 'data'.
+
+```{r, include = F}
+#load in the contents of our data into an object called 'data': 
+data <- read.csv("food_coded.csv")
+
+#attach the 'data' object
+attach(data)
+```
+
+## Data
+
+The variables from our data set that we will focus on in this report include: 
+
+1. Gender 
++ This is an integer indicating the gender of the respondents. 1 indicates female; 2 indicates male. This variable is categorical.
+2. type_sports
++ This is an open ended character variable in which the respondent was asked what kind of sports they are involved in. We will clean this variable so that it is categorical.
+3. GPA
++ This is a character variable consisting of a numeric representation of each student's GPA. This is a continuous variable.
+4. life_rewarding
++ This is an integer variable indicating on a scale of 1-10 how strongly students agree with the statement "I feel life is very rewarding." 1 represents "strongly agree" and 10 represents "strong disagree" (on a scale). In other words, this variable appears to be a good measure of how rewarding students find their life at the point at which they are taking this survey. This is a continuous variable.
+5. eating_out
++ This is an integer variable indicating on a scale of 1-5 how often a student eats out. 1 is never and 5 is every day. This is a continuous variable.
+6. exercise
++ This is an integer variable indicating on a scale of 1-5 how often a student exercises every week. 1 is every day and 5 is never. This is a continuous variable.
+7. healthy_feel 
++ This is an integer variable indicating on a scale of 1-10 how likely students agree with the statement "I feel very healthy!". 1 represents "strongly agree" and 10 represents "strong disagree" on a scale. In other words, this variable appears to be a good measure of how healthy students find their life at the point of which they are taking this survey. This is a continuous variable.
+8. self_perception_weight
++ This is an integer variable indicating on a scale of 1-6 of how students perceive their weight. 1 is slim, 5 is overweight and 6 is "I don't think of myself in these terms." This is a continuous variable.
+
+
+## Data Cleaning 
+
+We will begin by cleaning the 'type_sports' variable. An issue with the data contained in this variable is that many of the values referring to the same sport type are formatted differently (for example “Rec Volleyball” vs. “Volleyball"). We will clean the data so that anything referring to the same sports category represents only 1 unique value. 
+
+```{r, include = F}
+#Get the current number of unique values in type_sports:
+length(unique(type_sports))
+
+#Make everything lowercase and remove preceding or trailing spaces at the end of text:
+type_sports <- trimws(tolower(type_sports))
+
+#Condense all responses that indicate no sport is played into a singular unique value (including those specific, weirdly formatted phrases):
+type_sports <- gsub(".*no.*", "none", type_sports)
+weirdResponse <- c("i danced", "used to", "rarely though")
+for (i in 1:length(weirdResponse)){
+   type_sports <- gsub(paste0(".*", weirdResponse[i] ,".*"), "none", type_sports)
+}
+
+#Make an 'unspecified' category for those values not entered:
+type_sports <- gsub("nan", "unspecifed", type_sports)
+
+#Make a 'multisport' category for those respondents who indicated that they played more than one sport:
+multisportPhrases <- c(",", "&", "and")
+for (i in 1:length(multisportPhrases)){
+   type_sports <- gsub(paste0(".*", multisportPhrases[i] ,".*"), "multisport", type_sports)
+}
+
+#Sort the sports into categories by seasons (fall, winter, and spring sports):
+fallSports <- c("soccer", "football", "volleyball", "field hockey", "water polo", "rowing", "crew")
+winterSports <- c("ice hockey", "wrestling", "dancing", "skiing", "basketball")
+springSports <- c("tennis", "softball", "baseball", "lacrosse", "running", "car racing", "horse back")
+
+for (i in 1:7){
+   type_sports <- gsub(paste0(".*", fallSports[i] ,".*"), "fall", type_sports)
+   type_sports <- gsub(paste0(".*", springSports[i] ,".*"), "spring", type_sports)
+   if (i<= 5) {
+     type_sports <- gsub(paste0(".*", winterSports[i] ,".*"), "winter", type_sports)
+   }
+}
+
+#Fix two unusual responses, lack of specificity, and spelling errors by respondents:
+type_sports <- gsub("fotball", "fall",  gsub("tennis soccer gym", "multisport",  gsub("hockey", "winter", type_sports)))
+
+#Finally, get the current number and categories of unique values in type_sports after cleaning the data:
+length(unique(type_sports))
+unique(type_sports)
+```
+
+We will also clean up GPA, life_rewarding, and income variables because we will be using these variables later on. *To see the specific steps we took to clean these variables, please refer to our rmd file.
+```{r, include = F}
+#check the types of variables of GPA, life_rewarding, and income
+str(GPA) 
+str(life_rewarding)
+str(income)
+
+#GPA is currently stored as character values, and we also notice some extraneous info in the answers, so we definitely need to do some data cleaning and convert the cleaned char values into numeric. The life_rewarding and income variable values are already numeric integers, so no need to do more work on this variable.
+
+#Remove preceding or trailing spaces at the end of text, and get rid of weird formatting:
+GPA <- trimws(GPA)
+GPA <- gsub(" .*", "", GPA)
+
+weirdResponse <- c("Personal", "nan", "Unknown")
+for (i in 1:length(weirdResponse)){
+   GPA <- gsub(paste0(".*", weirdResponse[i],".*"), NA, GPA)
+}
+
+#Everything looks good now in the GPA variable, so let's convert the variable values, currently character types, into numeric values and round to 1 decimal place
+GPA <- round(as.numeric(GPA), 1)
+data$GPA <- GPA
+
+#Data Cleaning for the life_rewarding and income variables- change the "NaN" values into 'NA' and convert everything into numeric
+life_rewarding <- as.numeric(gsub("NaN", NA, life_rewarding))
+income <- as.numeric(gsub("NaN", NA, income))
+```
+
+
+## Descriptive Plots 
+
+With our cleaned 'type_sports' variable, we can now create box plots that maps sports type against other variables. For example, we can create a boxplot of sports type by GPA.
+
+```{r}
+boxplot(as.numeric(GPA) ~ type_sports, xlab = "Type of Sport Played", ylab = "Student GPA", main = "Student GPA by Type of Sport Played", col = c("orange", "yellow", "lightgreen", "pink", "gold", "cadetblue1"))
+```
+
+*From this boxplot of student GPA by sport type, we can see that there does not appear to be very clear differences in median student GPA across the type of sport played. The median GPA appears to be around 3.5 for each of the sport types, but the median student GPA for the "unspecified" sport group appears to be visibly lower than the median of the other sport groups, at around 3.3. There are also some notable pieces of information we can extract from the boxplot; for example, the interquartile range of student GPAs among the group that plays spring sports appears to be greatest compared to the other sport groups. In addition, there does not appear to be many outliers in this boxplot, which is a good indication that the data is likely normally distributed.*
+
+Since the spread for winter sports looks a bit more skewed, let's check for normality with a normal quantile plot.
+```{r}
+qqPlot(na.omit(data$GPA[type_sports == "winter"]), main = "Normal Quantile Plot for Winter Sport GPAs", ylab = "GPAs for Winter Sports")
+```
+
+*Based on the normal quantile plot, GPA looks to be normally distributed for winter sports as the points are within the boundaries. *
+
+We can also use a histogram to display the life rewardingness ranking as given by students:
+```{r}
+hist(life_rewarding, main = "Histogram of How Life Rewarding is (1-10)", xlab = "Life Rewardingness Ranking", ylab = "Frequency", col = "green")
+```
+
+## T-test and Bootstrap Confidence Interval
+
+Now, let's compare the mean GPA for students who play a fall sport against students who play a winter sport. We will perform a t-test:
+
+```{r, include = F}
+#Make a temporary data set that contains only information from students who were either fall or winter athletes:
+temp <- data[type_sports == "fall" | type_sports == "winter", ]
+
+#Update our temporary data set to contain only rows where GPA is not missing
+temp <- data[!is.na(as.numeric(GPA)),]
+```
+
+```{r}
+#Perform a t-test and get the resulting confidence interval for the mean difference:
+(meanComp <- t.test(as.numeric(temp$GPA[type_sports == "fall"]) , as.numeric(temp$GPA[type_sports == "winter"])))
+ci_tTest <- meanComp$conf.int
+ci_tTest
+```
+
+*We see that the 95% confidence interval for difference in mean is between approximately -.34 and .14. Our high p-value indicates that we cannot reject the null hypothesis in favor of the alternative. There is not sufficient evidence to suggest that the true difference means is not equal to 0.*
+
+We can also create a bootstrap confidence interval for the difference in mean GPA between fall athletes and winter athletes:
+
+```{r, include = F}
+#Create bootstrap confidence interval using samples: 
+n_samp <- 10000  #The number of samples we will take 
+meanDif <- rep(NA, n_samp) # A vector for our bootstrapped means
+
+for (i in 1:n_samp) {
+   avgFall <- mean(sample(na.omit(as.numeric(temp$GPA[type_sports == "fall"])), length(temp$type_sports[type_sports == "fall"]), replace = T))
+   avgWinter <- mean(sample(na.omit(as.numeric(temp$GPA[type_sports == "winter"])), length(temp$type_sports[type_sports == "winter"]), replace = T))
+   meanDif[i] <- avgFall - avgWinter
+}
+```
+
+```{r}
+ci_meanDif <-  quantile(meanDif, c(0.025, 0.975))
+ci_tTest <- meanComp$conf.int
+ci_meanDif
+
+#To make a histogram with lines for 95% parametric and bootstrap confidence intervals:
+hist(meanDif, col = "mediumpurple1", main = "Average Difference in Mean GPA Between
+Fall and Winter Athletes", breaks = 30, cex.main = .8, xlab = "Mean Difference
+")
+abline(v = ci_meanDif, lwd = 3, col = "red")
+abline(v = ci_tTest, lwd = 3, col = "green", lty = 2)
+legend("topright", c("Original CI","Boot CI"), lwd = 3, col = c("green","red"), lty =
+c(2,1))
+```
+
+*We see graphically, from the histogram with the theoretical and bootstrapped CI bands, that the two confidence intervals are very similar. We see that t-test confidence interval is only slightly larger than the bootstrap confidence interval: its lower parameter is slightly lower (about -0.34 for the original CI and about -0.32 for the bootstrapped CI lower bound) and its higher parameter (about 0.14 for the theoretical and .13 for the bootstrapped CI upper bound) is slightly larger. Because the two intervals are approximately the same, using either would be acceptable to determine with 95% confidence the location of the true difference.*
+
+## Scatterplots and Correlation
+
+Next, we were curious to see whether there was a correlation between the student GPA and their numeric answer to the question of whether they find life rewarding.
+
+We will begin with data cleaning of GPA and life_rewarding variables.
+``` {r, include = F}
+#First, we converted the GPA and life_rewarding answers to numeric, stored in a temporary data set, labeled 'temp2' 
+temp2 <- data[,c('GPA', 'life_rewarding')]
+temp2$GPA <- GPA
+temp2$life_rewarding <- life_rewarding
+
+#If we look at the length of both variables, we see that both have 125 values, but there are unfortunately some individuals that did not answer across both variables (4 in GPA and 1 in life_rewarding). So, let's remove those individuals from both data sets:
+length(temp2$GPA)
+length(temp2$life_rewarding)
+temp2 <- temp2[!is.na(temp2$GPA),]
+temp2 <- temp2[!is.na(temp2$life_rewarding),]
+
+#check both variables again after cleaning and removing NA responses:
+length(temp2$GPA)
+length(temp2$life_rewarding)
+
+#Now both variables have the corresponding individuals that answered NA to either or both questions removed, and both columns are of the same length, which is good! Now we can proceed.
+```
+
+With the data cleaned, we can look at the correlation (if it exists) between the variables "GPA" and "life_rewarding". We started by making a scatterplot to see the visual representation of the numeric variables.
+```{r}
+plot(temp2$life_rewarding ~ temp2$GPA, xlab = 'GPA', ylab = 'Perception of How Rewarding their Life is (1-10)', cex.main = 0.9, pch = 19, col = "pink")
+mtext(paste("Sample Correlation =", round(cor(temp2$life_rewarding, temp2$GPA, use = "complete.obs"), 3)), cex = 1.2, line = 0)
+mtext("How Rewarding Participant Finds Life vs Their GPA", cex = 1.2, line = 1)
+
+# Let's try jittering the plot, so we can see some of the correlation.
+plot(jitter(temp2$life_rewarding) ~ jitter(temp2$GPA), xlab = 'GPA', ylab = 'Perception of How Rewarding their Life is (1-10)', cex.main = 0.9, pch = 19, col = "pink")
+mtext(paste("Sample Correlation =", round(cor(temp2$life_rewarding, temp2$GPA, use = "complete.obs"), 3)), cex = 1.2, line = 0)
+mtext("How Rewarding Participant Finds Life vs Their GPA", cex = 1.2, line = 1)
+```
+
+*Based on the jittered scatterplot, we do not see any big trends in the data. Most of the data points seems to be concentrated at a 3.0 GPA or above.  We see that the correlation between how rewarding each participant finds their life and their GPA is slightly negative (it is -.023), but is practically negligible since its absolute value is so close to zero.*
+
+Next, let's group individuals into 4 groups defined by GPA values to observe whether differences in median life-rewardingness ranking across the GPA groups are significant.
+
+``` {r, include = F}
+#First, let's split the participant GPA values into 4 groups: 2.0-2.5, 2.6-3.0, 3.1-3.5, 3.6-4.0
+for (i in 1:length(temp2$GPA)) {
+   if (temp2$GPA[i] %in% c(2.0, 2.1, 2.2, 2.3, 2.4, 2.5)) {
+      temp2$GPA[i] = '2.0-2.5'
+   }
+   else if (temp2$GPA[i] %in% c(2.6, 2.7, 2.8, 2.9, 3.0)) {
+      temp2$GPA[i] = '2.6-3.0'
+   }
+   else if (temp2$GPA[i] %in% c(3.1, 3.2, 3.3, 3.4, 3.5)) {
+      temp2$GPA[i] = '3.1-3.5'
+   }
+   else if (temp2$GPA[i] %in% c(3.6, 3.7, 3.8, 3.9, 4.0)) {
+      temp2$GPA[i] = '3.6-4.0'
+   }
+}
+```
+
+```{r}
+#Now, make a boxplot of the results
+boxplot(temp2$life_rewarding ~ temp2$GPA, col = c("purple", "pink", "yellow", "orange"), xlab = "GPA Group", ylab = "Rank of How Rewarding Life Is", main = "How Life Rewarding Is by GPA Group")
+
+```
+*Interestingly, the boxplot of answers of whether life is rewarding by GPA shows different median values across the four GPA groups. The lowest median GPA is in the 3.1-3.5 GPA group, with a life-rewardingness ranking of about 3, and the highest ranking is in the 2.6-3.0 group, with a life-rewardingness ranking of about 7. There does not yet seem to be a clear correlation between life_rewardingness and GPA value.*
+
+## Permutation Test
+
+Now, let's see if there is a significant difference in the median ranking of life rewarding-ness between students in the 3.0-3.5 and 3.6-4.0 categories by conducting a permutation test. We are interested primarily in comparing the two GPA groups '3.1-3.5' and '3.6-4.0'.
+
+``` {r, include = F}
+set.seed(230)
+
+actualdiff <- median(temp2$life_rewarding[temp2$GPA == "3.6-4.0"]) - median(temp2$life_rewarding[temp2$GPA == "3.1-3.5"])
+
+#replace is false in default for sample() fxn
+fake <- sample(temp2$GPA)
+N <- 10000
+diffvals <- rep(NA, N)
+
+#for loop to fill diffvals as difference of medians between both genders, for each sample
+for (i in 1:N) {
+  fake <- sample(temp2$GPA)
+  diffvals[i] = median(sample(temp2$life_rewarding[fake == "3.6-4.0"])) - median(sample(temp2$life_rewarding[fake == "3.1-3.5"]))
+}
+```
+
+```{r}
+pval <- mean(abs(diffvals) >= abs(actualdiff))
+pval
+
+hist(diffvals, main = "Histogram of Permuted Sample Differences in Life Rewarding-ness Ranking between GPA Groups", cex.main = 0.65, xlab = "Life Rewardingness Rankings (Differences)", col = "pink")
+
+abline(v = actualdiff, col = "blue", lwd = 3)
+text(actualdiff - 0.15, 900 , paste("Actual Diff in Means =", round(actualdiff, 2)), srt = 90)
+```
+
+*The p-value, 0.3251 (obtained from the permutation test done on the difference of medians between the "fake" values between the '3.1-3.5' and '3.6-4.0' GPA group life-rewardingness rankings), is greater than the significance level of 0.05. Therefore, we have failed to reject the null hypothesis, that there is no significant difference between the median life-rewardingness ranking values across the 2 GPA groups. There is not sufficient evidence to prove that the difference between 3.1-3.5 and 3.6-4.0 GPA group median life-rewardingness values is nonzero.*
+
+We will repeat the above with another pair of GPA groups: the 2.6-3.0 and 3.1-3.5 GPA groups. These two groups were chosen for the second permutation test because the lowest median GPA is in the 3.1-3.5 GPA group and the highest ranking is in the 2.6-3.0 group. Therefore, we were interested in determining whether the large difference in ranking is statistically significant.
+
+``` {r, include = F}
+actualdiff <- median(temp2$life_rewarding[temp2$GPA == "2.6-3.0"]) - median(temp2$life_rewarding[temp2$GPA == "3.1-3.5"])
+
+#replace is false in default for sample() fxn
+fake <- sample(temp2$GPA)
+
+N <- 10000
+diffvals <- rep(NA, N)
+
+#for loop to fill diffvals as difference of medians between both genders, for each sample
+for (i in 1:N) {
+  fake <- sample(temp2$GPA)
+  diffvals[i] = median(sample(temp2$life_rewarding[fake == "2.6-3.0"])) - median(sample(temp2$life_rewarding[fake == "3.1-3.5"]))
+}
+````
+
+```{r}
+pval <- mean(abs(diffvals) >= abs(actualdiff))
+pval
+
+hist(diffvals, main = "Histogram of Permuted Sample Differences in Life Rewarding-ness between '2.6-3.0' and '3.1-3.5' GPA Groups", cex.main = 0.65, xlab = "Life Rewardingness Rankings (Differences)", col = "yellow")
+
+abline(v = actualdiff, col = "blue", lwd = 3)
+text(actualdiff - 0.15, 700 , paste("Actual Diff in Means =", round(actualdiff, 2)), srt = 90)
+```
+
+*The p-value, 0.06, obtained from the permutation test is also greater than the significance level of 0.05 (but only narrowly). As a result, we only narrowly fail to reject the null hypothesis, that there is no significant difference between the median life-rewardingness ranking values across the 2 GPA groups: '2.6-3.0' and '3.1-3.5'.  We do notice that the p-value for the second permutation test is lower than the p-value for the first permutation test. If we increased our alpha value by .01, we could find the results of this second test to be statistically significant (whereas our interpretation of the results from the first test would remain the same).*
+
+## Multiple Regression
+
+We will use backwards stepwise regression to create a model for predicting the self_perception_weight variable. The variables we will look at are healthy_feeling, Gender, life_rewarding, eating_out and exercise. We will also consider interactions between gender and the four continuous variables. We will remove non-significant terms until all terms have p-values less than 0.05. At the end, we will get linear model summary information for the model and check residuals.
+
+```{r, include = F}
+# First make a temp data set with all of our variables
+temp <- data[,  c("self_perception_weight", "healthy_feeling", "Gender", "life_rewarding", "eating_out", "exercise")]
+
+# Then, clean up the data. There are some instances of NaN and we only want to include cases where students answered all questions. Also recode Gender to be male and female strings.
+temp$self_perception_weight <- as.numeric(gsub("NaN", NA, self_perception_weight))
+# We also want remove responses of 6 -- 'I don't think of myself in these terms' because it does not follow the scale from slim (1) to overweight (5) and can skew our results.
+temp$self_perception_weight[temp$self_perception_weight == 6] <- NA
+temp$life_rewarding <- life_rewarding
+temp$Gender <- car::recode(as.character(Gender), "'1' = 'Female'; '2' = 'Male'")
+temp$exercise <- as.numeric(gsub("NaN", NA, exercise))
+temp <- temp[complete.cases(temp) == T, ]
+```
+
+```{r}
+#Create a model with all of the variables individually and interactions between gender and the following variables: healthy_feeling, exercise, eating_out and life_rewarding 
+m1 <- lm(temp$self_perception_weight ~ temp$healthy_feeling*temp$Gender + temp$life_rewarding*temp$Gender + temp$eating_out*temp$Gender + temp$exercise*temp$Gender + temp$healthy_feeling + temp$Gender + temp$eating_out + temp$exercise)
+Anova(m1, type = "III")
+
+#Taking out variables and interactions in this order until all predictors are significant: Gender and life_rewarding; Gender and eating_out; Gender and exercise; Gender and healthy_feeling; healthy_feeling; eating_out
+m2 <- lm(temp$self_perception_weight ~ temp$Gender + temp$exercise)
+Anova(m2, type = "III") 
+
+#Getting summary results and checking residuals
+summary(m2)
+myResPlots(m2, "Final Model")
+```
+
+*After removing insignificant independent variables one at a time until all were significant (p < 0.05), our final model shows that exercise and Gender are the best predictors for self_perception_weight. The r-squared value is 0.2458 indicating a 24% predictive power for the model, which is not high. Specifically, our model states that people who reported their gender as male are more likely to have a lower report for the self_perception_weight score (meaning that they perceive themselves as skinnier), which we can see from the negative coefficient (-0.4825). Additionally, people who have a higher exercise score (exercise more) tend to report themselves as overweight, which we can see from the positive coefficient (0.5631). The p-value for Gender is 0.00436, which is less than our alpha, 0.05. The p-value for exercise is 0.00001, which is also significantly less than our alpha. From this, we can determine that the predictors are statistically significant. Our normal quantile plot appears this way because the data has been quantized to the nearest integer; the normal quantile plots show an approximately normal distribution, and the fits vs. residuals plot does not show any obvious heteroskedasticity. Thus, we don't see a necessary transformation as these meet our model's assumptions.*
+
+## One-way ANOVA
+
+Following up from the box-plot of GPA by type of sports displayed above, we will use an ANOVA model to compare GPA across different types of sports. We will check the assumptions that variances across groups are the same, the data is normally distributed, and there is no heteroskedasticity.
+```{r, include = F}
+# Create a temp data set to use our cleaned up data and only include instances where students have an answer for GPA
+tempdat <- data[c("GPA", "type_sports")]
+tempdat$GPA <- GPA
+tempdat$type_sports <- type_sports
+tempdat <- tempdat[complete.cases(tempdat) == TRUE, ]
+
+# Compare the standard deviations across groups to see if the equal variance assumption of ANOVA is met
+sds <- tapply(tempdat$GPA, tempdat$type_sports, sd)
+ratio <- max(sds)/min(sds)
+ratio
+# The ratio is below 2, so we can assume the variances are the same across the groups.
+
+# We can also use the bartlett test to test for homogeneity of variances
+bartlett.test(tempdat$GPA, tempdat$type_sports)
+```
+
+```{r}
+#The ANOVA model
+aov1 <- aov(tempdat$GPA ~ tempdat$type_sports)
+summary(aov1)
+
+#TukeyHSD
+TukeyHSD(aov1)
+
+par(mar=c(5, 5, 4, 1), cex = 0.7)
+plot(TukeyHSD(aov1), las = 1)
+
+#Residual Plots
+myResPlots2(aov1)
+```
+
+*The ANOVA model has a p-value of 0.767, meaning we fail to reject the null hypothesis that there is a difference in mean GPAs across different types of sports. None of the pairings are statistically significant as they have p-values above our alpha of 0.05. Also, all of the confidence intervals include 0, which supports that none of the pairings are statistically significant. The assumptions for ANOVA are reasonably met as the ratio between the standard deviations is less than 2, so we can assume that the variances are the same across different types of sports. Also, the bartlett test displays a p-value greater that 0.05, so we fail to reject the null hypothesis that the variances are the same. The residual plots show that the residuals are approximately normally distributed, and the plot of fits vs. residuals shows no outliers or signs of heteroskedasticity which is also good. The values are limited for GPA, explaining the vertical lines shown in the plot of fits vs residuals.*
+
+## Conclusion
+
+Overall, data relating to college students' lifestyle choices and food preferences did not show many interesting relationships. First, we looked to see if there were any differences in mean GPA between Fall and winter athletes--there was no evidence of a significant difference (p > 0.05 and 95% conf intervals contained 0). Then, we looked at students' GPAs and life rewarding-ness.Despite apparent differences in medians between the 2.6-3.0 and 3.1 to 3.5 GPA groups and the 3.1 to 3.5 and 3.6 to 4.0 groups, permutation tests showed that these differences were not significant. Next, we created a linear model using stepwise multiple regression. This model showed a relationship indicating that people who identify as male are more likely to view themselves as skinny and people who report higher exercise frequencies tend to self-report as more overweight (interesting). Finally, we performed one-way ANOVA to determine if there is a difference in GPAs across different types of sports. Our model did not find a significant difference in GPAs across sports groups (p = 0.767 > 0.05). 
